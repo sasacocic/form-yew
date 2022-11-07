@@ -2,7 +2,7 @@
 proc_macro = true
 
 [package]
-name = "yew_form_derive"
+name = "form-yew"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
