@@ -1,6 +1,10 @@
 # This is a work in progress
 
-- no documentation for doc.rs
+_WARNING_ this crate is badly documented and, becuase of that it makes it hard to use
+
+TODOS
+
+- Add documentation for doc.rs
 
 # What is this
 
