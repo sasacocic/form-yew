@@ -7,6 +7,13 @@ mod helpers;
 use helpers::parse_struct_body;
 
 
+
+
+// 11-12-22 where i stopped
+// was trying to make the adverstise form work for checkboxes, but I need the value
+// to be passed as a String and not a boolean
+
+
 /*
  TODOs:
  - error handling. If something is done wrong the error handling should
@@ -31,7 +38,10 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
     let enum_name = format_ident!("Update{}", struct_name);
     let provider_name = format_ident!("{}Provider", struct_name);
     let props_name = format_ident!("{}Props", struct_name);
-    let (messages_enum, struct_field_names, (html_tag_type, cast_type)) = parse_struct_body(der_input.data, &enum_name);
+    let (messages_enum,
+        struct_field_names,
+        (html_tag_type, cast_type),
+        struct_field_types) = parse_struct_body(der_input.data, &enum_name);
     // update_#struct_field_names
     let struct_field_names_for_update = struct_field_names
         .iter()
@@ -62,6 +72,11 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
     let function_component_props = function_component_names.iter().map(|v| format_ident!("{}_Props",v)).collect::<Vec<proc_macro2::Ident>>();
 
     // eprintln!("html tag {:#?} - rust type {:#?}", html_tag_type, cast_type);
+    
+
+    let generated_html = helpers::generate_html_inputs(html_tag_type.clone(), struct_field_names_as_strings.clone(), struct_field_types.clone());
+
+    let generated_callbacks = helpers::update_callbacks(struct_field_types.clone(), enum_variants.clone(), cast_type.clone(), struct_field_names.clone());
 
     let final_output = quote! {
 
@@ -102,15 +117,23 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
 
             fn create(ctx: &Context<Self>) -> Self {
 
-                #( let #struct_field_names_for_update =  |e: yew::events::Event| -> Self::Message {
-                    let input = e.target_dyn_into::<#cast_type>();
-                    let v = input.map(|input| {
-                        input.value()
-                    });
-                    Self::Message::#enum_variants(v.expect("a val"))
-                }; 
-                let #struct_field_names_for_update = ctx.link().callback(#struct_field_names_for_update);
+                // #(
+                //     let #struct_field_names_for_update = |e: yew::events::Event| -> Self::Message {
+                //     let input = e.target_dyn_into::<#cast_type>().unwrap();
+                //     let parse_type: #struct_field_types = input.value().parse().unwrap();
+                //     Self::Message::#enum_variants(parse_type)
+                //     }; 
+                //     let #struct_field_names_for_update = ctx.link().callback(#struct_field_names_for_update);
+                // )*
+
+
+                #(
+                    let #struct_field_names_for_update = #generated_callbacks; 
+                    let #struct_field_names_for_update = ctx.link().callback(#struct_field_names_for_update);
                 )*
+
+
+
 
                 Self {
                     form: #struct_name {
@@ -149,8 +172,6 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
         #(#[function_component(#function_component_names)]
         pub fn #function_component_function_name(p: &#function_component_props) -> yew::Html {
 
-
-
             let #provider_name {
                 form: #struct_name {
                     #struct_field_names: struct_field_name,
@@ -160,17 +181,20 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
                 ..
             } = use_context::<#provider_name>().expect("context for this field");
 
-            html! {
 
 
-                <#html_tag_type class={&p.class} onchange={update_func} value={struct_field_name} placeholder={#struct_field_names_as_strings} /> 
+            /*
+            - if this thing is a boolean then I need to have a
+            <#html_tag_type type="checkbox" class={&p.class} onchange={update_func} value={struct_field_name} placeholder={#struct_field_names_as_strings} /> 
+             */
 
-            }
-
-
+             html! {
+                #generated_html
+             }
+            //html! {
+                //// <#html_tag_type class={&p.class} onchange={update_func} value={struct_field_name.to_string()} placeholder={#struct_field_names_as_strings} /> 
+            //
          })*
-
-
 
     }
     .into();

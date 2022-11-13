@@ -1,3 +1,14 @@
+# THIS CRATE SHOULDN'T BE USED IN IT'S CURRENT STATE
+
+as it stands please don't use this crate for well basically anything. I'm using it
+for http://rustjobs.io atm. The plan is to improve the create overtime, and make it
+more general to handle more use cases.
+
+# fix this soon
+
+- if bool type is used then make it a bool if it's a string make it a string if the
+  ele attribute is "checkbox"
+
 # This is a work in progress
 
 _WARNING_ this crate is badly documented and, becuase of that it makes it hard to use
