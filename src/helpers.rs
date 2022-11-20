@@ -1,8 +1,14 @@
-use std::path::Path;
-
 use crate::*;
 use proc_macro2::{Ident, Span};
 use syn::{MetaNameValue, Type, TypePath};
+
+/*
+
+I often need to re-use some of this data. Why not put it in a struct
+of things that I've parsed and then use that to work with instead
+off passing around all these arrays - also I don't even know if
+Vecs/arrays are the best way to work with this
+*/
 
 fn parse_meta(m: syn::Meta) -> (Ident, TokenStream2) {
     let html_input_element: proc_macro2::TokenStream = quote! { web_sys::HtmlInputElement };
@@ -65,7 +71,7 @@ pub fn parse_struct_body(
     let mut struct_field_names = Vec::new();
     let mut struct_field_types = Vec::new();
     // let mut struct_data_types = Vec::new();
-    let mut v = Vec::new();
+    let mut enum_variants = Vec::new();
     let mut attirbutes = Vec::new();
     match data {
         Data::Struct(DataStruct { fields, .. }) => match fields {
@@ -99,7 +105,7 @@ pub fn parse_struct_body(
                     attirbutes.append(&mut html_tag);
 
                     let ideny = format_ident!("{}", id.to_string().to_uppercase());
-                    v.push(quote! { #ideny(#ty) });
+                    enum_variants.push(quote! { #ideny(#ty) });
                     struct_field_names.push(id);
                 }
             }
@@ -126,7 +132,7 @@ pub fn parse_struct_body(
         quote! {
             pub enum #enum_name {
                 // #( #struct_field_names(#struct_data_types) ),*
-                #( #v ),*
+                #( #enum_variants ),*
             }
         },
         struct_field_names,
@@ -135,24 +141,23 @@ pub fn parse_struct_body(
     )
 }
 
-pub fn generate_html_inputs(
+pub fn gen_html_inputs(
     html_tag_types: Vec<Ident>,
     struct_field_names: Vec<String>,
     struct_field_types: Vec<Type>,
 ) -> Vec<TokenStream2> {
-    // <#html_tag_type class={&p.class} onchange={update_func} value={struct_field_name} placeholder={#struct_field_names_as_strings} />
-
     let mut html = Vec::new();
+    let bool_type = Type::Path(TypePath {
+        qself: None,
+        path: syn::Path::from(Ident::new("bool", Span::call_site())),
+    });
     for ((html_tag_type, struct_field_name), struct_field_type) in html_tag_types
         .iter()
         .zip(struct_field_names)
         .zip(struct_field_types)
     {
-        // if structfieldtype == "bool" {then generates}
-        // I actually want this to work for Strings as well
-        let html_tag = if &struct_field_name == "remote" {
-            // without the checked attribute here the field is quite buggy and I don't know why.
-            // checked also isn't rendered in the final html...
+        let html_tag = if struct_field_type == bool_type {
+            // without checked={} this becomes buggy for some reason idk why
             quote! {
                 <#html_tag_type type={"checkbox"} class={&p.class} onchange={update_func} checked={struct_field_name}/>
             }
@@ -168,47 +173,40 @@ pub fn generate_html_inputs(
     html
 }
 
-/*
-    not a great name - this will give us callbacks that we can
-    use to update the yew provider
-
-*/
-pub fn update_callbacks(
+pub fn gen_update_callbacks(
     struct_field_types: Vec<Type>,
     enum_variants: Vec<Ident>,
     cast_types: Vec<TokenStream2>,
-    struct_field_names: Vec<Ident>,
+    field_validation_errors: Vec<Ident>,
 ) -> Vec<TokenStream2> {
     let mut callbacks = Vec::new();
 
-    let type_name = struct_field_names.iter().zip(struct_field_types);
-
-    for (((struct_field_name, struct_field_type), enum_variant), cast_type) in
-        type_name.zip(enum_variants).zip(cast_types)
+    for (struct_field_type, enum_variant, cast_type, field_validation_error) in struct_field_types
+        .iter()
+        .zip(enum_variants)
+        .zip(cast_types)
+        .zip(field_validation_errors)
+        .map(|(((a, b), c), d)| (a, b, c, d))
     {
-        //        let callback = if struct_field_type.eq(&Type::Path(TypePath {
-        //            qself: None,
-        //            path: syn::Path::from(Ident::new("bool", Span::call_site())),
-        //        })) {
-
-        let callback = if &struct_field_name.to_string() == "remote" {
-            // basically need to toggle the value for the boolean
-            // not sure how exactly I'm going to do that here...
-
-            // TODO: make this work with the bool type which would use input.checked
+        /*
+        Note: some of the things interpolated are in the context of where this
+        TokenStream is interpolated
+         */
+        let callback = if struct_field_type.eq(&Type::Path(TypePath {
+            qself: None,
+            path: syn::Path::from(Ident::new("bool", Span::call_site())),
+        })) {
             quote! {
             |e: yew::events::Event| -> Self::Message {
                 let input = e.target_dyn_into::<#cast_type>().unwrap();
-                // let parse_type: #struct_field_type = input.value().parse().unwrap();
                 let checked = input.checked();
-                // let checkbox_value = if checked {
-                //     // input.value() <- use this eventually
-                //     "TRUE".to_string()
-                // } else {
-                //     "FALSE".to_string()
-                // };
-                // log::debug!( " checked -> {}", checked );
-                Self::Message::#enum_variant(checked)
+                if true {
+                    Self::Message::#enum_variant(checked)
+                } else {
+                    Self::Message::#enum_variant(checked)
+                    // TODO: swap this out for the bottom when I decide to surface the error
+                    // Self::Message::#field_validation_error(Some("validation error".into()))
+                }
                 };
             }
         } else {

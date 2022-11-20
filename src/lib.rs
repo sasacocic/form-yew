@@ -8,18 +8,19 @@ use helpers::parse_struct_body;
 
 
 
-
-// 11-12-22 where i stopped
-// was trying to make the adverstise form work for checkboxes, but I need the value
-// to be passed as a String and not a boolean
-
-
 /*
  TODOs:
+ - Refactor this code so it has more structure and it's more organized. It's really 
+ hard to work with right now. The mental load is a lot, and I feel like I have to
+ re-learn it each time I come back to it.
  - error handling. If something is done wrong the error handling should
  actually tell the user, and give a decent error message for a way to fix
  it.
+ - String + Bool support 
  */
+
+
+
 
 #[proc_macro_derive(YewForm, attributes(ele))]
 pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
@@ -31,18 +32,32 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
     - number
      */
 
+    
     let der_input = parse_macro_input!(token_stream as DeriveInput);
 
     let struct_name = der_input.ident;
 
+    // Message enum for the provider
     let enum_name = format_ident!("Update{}", struct_name);
+    // Providers name
     let provider_name = format_ident!("{}Provider", struct_name);
+    // (looks like) Props for provider 
     let props_name = format_ident!("{}Props", struct_name);
+    /*
+
+    messages_enum - associate type Message in a Component - in this case for the Provider
+    but this is the TokenStream to generate that code.
+    struct_field_names - the names of the fields in a struct
+    html_tag_type - html element corresponding to the types of the struct fields
+    cast_type - yew specific - when reading an input you need to cast it to a specific type e.g.
+    HtmlInputElement (i.e. <input ..../>) or HtmlTexrtAreaElement (i.e. <textarea ... />)
+
+
+     */
     let (messages_enum,
         struct_field_names,
         (html_tag_type, cast_type),
         struct_field_types) = parse_struct_body(der_input.data, &enum_name);
-    // update_#struct_field_names
     let struct_field_names_for_update = struct_field_names
         .iter()
         .map(|v| format_ident!("update_{}", v))
@@ -51,6 +66,10 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
     // NOTE: This is only here to get rid of compiler warnings for non-capitalized variant names
     // also, need to come up with a better way to do this than what I'm doing right now
     let enum_variants = struct_field_names.iter().map(|v| format_ident!("{}", v.to_string().to_uppercase())).collect::<Vec<proc_macro2::Ident>>();
+    // no in provider yet.
+    let field_validation_errors = struct_field_names.iter().map(|v| format_ident!("{}_error", v.to_string())).collect::<Vec<proc_macro2::Ident>>();
+
+    // add field_validation_errors to the struct_field_names
 
     let function_component_function_name = struct_field_names.iter().map(|v| format_ident!("{}_fn",v.to_string().to_uppercase())).collect::<Vec<proc_macro2::Ident>>();
     let function_component_names = struct_field_names.iter().map(|v| {
@@ -74,9 +93,9 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
     // eprintln!("html tag {:#?} - rust type {:#?}", html_tag_type, cast_type);
     
 
-    let generated_html = helpers::generate_html_inputs(html_tag_type.clone(), struct_field_names_as_strings.clone(), struct_field_types.clone());
+    let generated_html = helpers::gen_html_inputs(html_tag_type.clone(), struct_field_names_as_strings.clone(), struct_field_types.clone());
 
-    let generated_callbacks = helpers::update_callbacks(struct_field_types.clone(), enum_variants.clone(), cast_type.clone(), struct_field_names.clone());
+    let generated_callbacks = helpers::gen_update_callbacks(struct_field_types.clone(), enum_variants.clone(), cast_type.clone(), field_validation_errors.clone());
 
     let final_output = quote! {
 
@@ -109,6 +128,7 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
         pub struct #provider_name {
             pub form: #struct_name,
             #( pub #struct_field_names_for_update : yew::Callback<yew::html::onchange::Event>,)*
+            // #( pub #field_validation_errors: std::option::Option<std::string::String>, )*
         }
 
         impl Component for #provider_name {
@@ -139,6 +159,7 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
                     form: #struct_name {
                         #( #struct_field_names: Default::default(), )*
                     },
+                    // #( #field_validation_errors: None, )*
                     #( #struct_field_names_for_update, )*
                 }
             }
@@ -178,6 +199,7 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
                     ..
                 },
                 #update_funcs: update_func,
+                // #field_validation_errors: validation_error,
                 ..
             } = use_context::<#provider_name>().expect("context for this field");
 
@@ -189,12 +211,20 @@ pub fn yew_form_derive(token_stream: TokenStream) -> TokenStream {
              */
 
              html! {
+                <>
                 #generated_html
+                // if validation_error.is_some() {
+                //     <i>{"validation error: x is bad"}</i>
+                // }
+                </>
              }
             //html! {
                 //// <#html_tag_type class={&p.class} onchange={update_func} value={struct_field_name.to_string()} placeholder={#struct_field_names_as_strings} /> 
             //
          })*
+        
+
+
 
     }
     .into();
